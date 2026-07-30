@@ -34,7 +34,7 @@ def get_base64_image(image_path):
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="A4SE Tax Filing Compliance Portal",
+    page_title="Tax Filing Compliance Portal",
     page_icon="🇮🇪",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -44,6 +44,7 @@ st.set_page_config(
 DB_FILE = get_resource_path("irish_tax_compliance.db")
 LOGO1_PATH = get_resource_path("logo1.png")
 LOGO2_PATH = get_resource_path("logo2.png")
+TOP_HEADING_LOGO_PATH = get_resource_path("topheadinglogo.png")
 
 # --- COLOR PALETTE DEFINITION ---
 COLOR_MAP = {
@@ -62,6 +63,8 @@ st.markdown("""
     .stApp {
         background-color: #F8FAFC;
     }
+    
+    /* MAIN HEADER CONTAINER */
     .main-header {
         background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
         padding: 24px 32px;
@@ -76,19 +79,32 @@ st.markdown("""
     .main-header-content {
         flex: 1;
     }
+    .main-header-title-container {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .header-inline-logo {
+        height: 2.2rem;
+        width: auto;
+        vertical-align: middle;
+        object-fit: contain;
+    }
     .main-header h1 {
         color: #F8FAFC !important;
         margin: 0;
         font-weight: 700;
         font-size: 2rem;
+        display: inline-block;
+        vertical-align: middle;
     }
     .main-header p {
         color: #94A3B8;
-        margin: 4px 0 0 0;
+        margin: 6px 0 0 0;
         font-size: 0.95rem;
     }
     .header-logo-right {
-        max-height: 80px;
+        max-height: 75px;
         width: auto;
         border-radius: 8px;
         background-color: white;
@@ -96,31 +112,32 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
 
-    /* --- SIDEBAR FLEXBOX LAYOUT (PIN FOOTER TO BOTTOM) --- */
+    /* --- STRICT SIDEBAR FLEXBOX LAYOUT TO PIN FOOTER AT THE BOTTOM --- */
+    section[data-testid="stSidebar"] {
+        height: 100vh !important;
+    }
     section[data-testid="stSidebar"] > div:first-child {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        height: 100vh;
+        height: 100vh !important;
+        display: flex !important;
+        flex-direction: column !important;
     }
-    
     [data-testid="stSidebarUserContent"] {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
+        display: flex !important;
+        flex-direction: column !important;
+        flex-grow: 1 !important;
+        height: 100% !important;
     }
-
     .sidebar-footer-spacer {
-        flex-grow: 1;
+        flex-grow: 1 !important;
+        margin-top: auto !important;
     }
-
     .sidebar-contact-card {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 8px;
         padding: 12px;
-        margin-top: 16px;
-        margin-bottom: 12px;
+        margin-top: 20px;
+        margin-bottom: 20px;
         font-size: 0.85rem;
         color: #334155;
     }
@@ -283,10 +300,10 @@ if selected_sources:
     if 'Source' in df_cro.columns:
         df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
 
-# --- FLEXBOX SPACER TO PUSH FOOTER DOWN ---
+# --- FLEXBOX SPACER TO PUSH FOOTER DOWN TO VERY BOTTOM ---
 st.sidebar.markdown('<div class="sidebar-footer-spacer"></div>', unsafe_allow_html=True)
 
-# Official Contact Section at Sidebar Bottom
+# Contact Card (Pinned to Sidebar Bottom)
 st.sidebar.markdown("""
 <div class="sidebar-contact-card">
     <p style="margin: 0 0 6px 0; font-weight: 700; color: #0F172A;">💼 ACCOUNTANTS 4SME</p>
@@ -296,18 +313,25 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- MAIN HEADER WITH LOGO 2 ---
+# --- PREPARE LOGOS FOR MAIN HEADER ---
+top_logo_b64 = get_base64_image("topheadinglogo.png")
 logo2_b64 = get_base64_image("logo2.png")
+
+if top_logo_b64:
+    heading_title_html = f'<div class="main-header-title-container"><img src="data:image/png;base64,{top_logo_b64}" class="header-inline-logo" alt="Logo" /> <h1>TAX FILING COMPLIANCE PORTAL</h1></div>'
+else:
+    heading_title_html = '<h1>TAX FILING COMPLIANCE PORTAL</h1>'
 
 if logo2_b64:
     logo2_html = f'<img src="data:image/png;base64,{logo2_b64}" class="header-logo-right" alt="Logo 2" />'
 else:
     logo2_html = '<span style="color:#94A3B8; font-size:0.8rem;">[logo2.png missing]</span>'
 
+# Render Header
 st.markdown(f"""
     <div class="main-header">
         <div class="main-header-content">
-            <h1>🇮🇪 A4SE TAX FILING COMPLIANCE PORTAL</h1>
+            {heading_title_html}
             <p>Certified Tax Advisors & Accountants @ <b>Accountants 4SME</b> | Irish CT1 & CRO B1 Compliance | <b>{datetime.now().strftime('%d/%m/%Y')}</b></p>
         </div>
         {logo2_html}
