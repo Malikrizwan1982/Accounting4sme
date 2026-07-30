@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+from datetime import datetime
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -12,58 +13,69 @@ except ImportError:
     import sqlite3
     HAS_TURSO = False
 
-# --- PATH & FILE HELPER ---
+# --- PATH RESOLUTION FOR PYINSTALLER, LOCAL DEV & STREAMLIT CLOUD ---
 def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and PyInstaller / Streamlit Cloud."""
+    """Get absolute path to resource, works for dev and Streamlit Cloud."""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
-DB_FILE = get_resource_path("irish_tax_compliance.db")
-
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Irish Tax Compliance Dashboard",
-    page_icon="🍀",
-    layout="wide"
+    page_title="Irish Tax Filing Compliance Portal",
+    page_icon="🇮🇪",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --- CSS STYLING FOR EQUAL KPI CARDS & UI ---
+# --- COLOR PALETTE DEFINITION ---
+COLOR_MAP = {
+    'All': '#1E293B',                 # Slate Dark
+    'Filed': '#0284C7',               # Sky Blue
+    'Late': '#DC2626',                # Crimson Red
+    'Critical (<15 Days)': '#EA580C',  # Vibrant Orange
+    'Warning (<30 Days)': '#D97706',   # Amber Yellow
+    'Safe (>30 Days)': '#16A34A',     # Emerald Green
+    'Pending / No Data': '#64748B'    # Slate Grey
+}
+
+# --- GLOBAL CUSTOM CSS ---
 st.markdown("""
 <style>
-    div[data-testid="stMetric"] {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        padding: 15px 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        min-height: 110px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+    .stApp {
+        background-color: #F8FAFC;
     }
-    div[data-testid="stMetricLabel"] {
-        font-weight: 600;
-        color: #495057;
+    .main-header {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        padding: 24px 32px;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    .main-header h1 {
+        color: #F8FAFC !important;
+        margin: 0;
+        font-weight: 700;
+        font-size: 2rem;
+    }
+    .main-header p {
+        color: #94A3B8;
+        margin: 4px 0 0 0;
+        font-size: 0.95rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CUSTOM REACT PIE CHART COMPONENT ---
-def render_custom_pie_chart(counts_dict, key=None):
-    """Renders custom React Pie Chart component if built folder exists."""
-    component_path = get_resource_path("pie_chart_component")
-    build_path = os.path.join(component_path, "build")
+# Declare Custom Two-Way Component with proper path resolution
+COMPONENT_PATH = get_resource_path("pie_chart_component")
+interactive_pie_chart = components.declare_component("interactive_pie_chart", path=COMPONENT_PATH)
 
-    if os.path.exists(build_path):
-        pie_chart_func = components.declare_component("pie_chart_component", path=build_path)
-        return pie_chart_func(counts=counts_dict, key=key)
-    else:
-        st.info("Custom Pie Chart component build directory not found. Standard UI enabled.")
-        return None
+# DB File Path for local fallback
+DB_FILE = get_resource_path("irish_tax_compliance.db")
 
-# --- DATABASE CONNECTION HELPERS ---
+# --- TURSO / SQLITE HELPERS ---
 def query_turso(query_str, params=()):
-    """Executes SELECT query on Turso Cloud using libsql-client."""
+    """Executes SELECT queries on Turso Cloud using libsql-client."""
     turso_url = st.secrets.get("TURSO_DATABASE_URL")
     turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -77,7 +89,7 @@ def query_turso(query_str, params=()):
         return pd.DataFrame(rows)
 
 def execute_turso(query_str, params=()):
-    """Executes UPDATE/INSERT statement on Turso Cloud."""
+    """Executes UPDATE statements on Turso Cloud."""
     turso_url = st.secrets.get("TURSO_DATABASE_URL")
     turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -87,178 +99,370 @@ def execute_turso(query_str, params=()):
     with libsql_client.create_client_sync(turso_url, auth_token=turso_token) as client:
         client.execute(query_str, params)
 
-# --- DATE FORMATTER ---
 def format_dataframe_dates(df):
-    """Formats date columns cleanly."""
+    """Converts datetime columns into clean DD/MM/YYYY formatted dates with no time component."""
     for col in df.columns:
-        if 'date' in col.lower() or 'due' in col.lower() or 'period' in col.lower():
+        if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard']):
             try:
-                df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d')
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
             except Exception:
                 pass
     return df
 
-# --- COMPLIANCE STATUS LOGIC ---
-def assign_status_ct(row):
-    filed = str(row.get('CTR Filled', '')).strip().lower()
-    days = row.get('DAYS Remaining')
-    if filed == 'yes': return 'Filed'
-    if pd.isna(days): return 'Pending / No Data'
-    if days < 0: return 'Late'
-    elif days <= 15: return 'Critical (<15 Days)'
-    elif days <= 30: return 'Warning (<30 Days)'
-    else: return 'Safe (>30 Days)'
-
-def assign_status_cro(row):
-    filed = str(row.get('CORE FILED', '')).strip().lower()
-    days = row.get('Remaining Days')
-    if filed == 'yes': return 'Filed'
-    if pd.isna(days): return 'Pending / No Data'
-    if days < 0: return 'Late'
-    elif days <= 15: return 'Critical (<15 Days)'
-    elif days <= 30: return 'Warning (<30 Days)'
-    else: return 'Safe (>30 Days)'
-
-# --- DATA LOADING FUNCTION ---
 @st.cache_data(ttl=15)
 def load_compliance_data():
     turso_url = st.secrets.get("TURSO_DATABASE_URL", None)
-    
+
     if HAS_TURSO and turso_url:
         df_ct = query_turso("SELECT * FROM corporation_tax")
         df_cro = query_turso("SELECT * FROM cro_annual_returns")
     else:
         import sqlite3
+        if not os.path.exists(DB_FILE):
+            st.error(f"Database file not found at path: {DB_FILE}")
+            st.stop()
         conn = sqlite3.connect(DB_FILE)
         df_ct = pd.read_sql_query("SELECT * FROM corporation_tax", conn)
         df_cro = pd.read_sql_query("SELECT * FROM cro_annual_returns", conn)
         conn.close()
 
+    # Format all Date columns upfront
     df_ct = format_dataframe_dates(df_ct)
     df_cro = format_dataframe_dates(df_cro)
+
+    def assign_status_ct(row):
+        filed = str(row.get('CTR Filled', '')).strip().lower()
+        days = row.get('DAYS Remaining')
+        if filed == 'yes':
+            return 'Filed'
+        if pd.isna(days):
+            return 'Pending / No Data'
+        if days < 0:
+            return 'Late'
+        elif days <= 15:
+            return 'Critical (<15 Days)'
+        elif days <= 30:
+            return 'Warning (<30 Days)'
+        else:
+            return 'Safe (>30 Days)'
+
+    def assign_status_cro(row):
+        filed = str(row.get('CORE FILED', '')).strip().lower()
+        days = row.get('Remaining Days')
+        if filed == 'yes':
+            return 'Filed'
+        if pd.isna(days):
+            return 'Pending / No Data'
+        if days < 0:
+            return 'Late'
+        elif days <= 15:
+            return 'Critical (<15 Days)'
+        elif days <= 30:
+            return 'Warning (<30 Days)'
+        else:
+            return 'Safe (>30 Days)'
 
     df_ct['Compliance_Status'] = df_ct.apply(assign_status_ct, axis=1)
     df_cro['Compliance_Status'] = df_cro.apply(assign_status_cro, axis=1)
 
     return df_ct, df_cro
 
-# --- RENDER DASHBOARD TABS ---
-def render_compliance_page(df, title, filed_col_name, days_col, key_prefix):
-    st.title(f"🍀 {title}")
+df_ct_raw, df_cro_raw = load_compliance_data()
 
-    # Metrics Overview
-    c1, c2, c3, c4 = st.columns(4)
-    total_records = len(df)
-    filed_count = len(df[df[filed_col_name].str.strip().str.lower() == 'yes'])
-    critical_count = len(df[df['Compliance_Status'] == 'Critical (<15 Days)'])
-    late_count = len(df[df['Compliance_Status'] == 'Late'])
+# --- SIDEBAR CONTROLS ---
+st.sidebar.image("https://img.icons8.com/color/96/ireland.png", width=50)
+st.sidebar.title("Compliance Portal")
+st.sidebar.markdown("---")
 
-    c1.metric("Total Returns", total_records)
-    c2.metric("Filed", filed_count)
-    c3.metric("Critical (<15 Days)", critical_count)
-    c4.metric("Overdue / Late", late_count)
+search_term = st.sidebar.text_input("🔍 Search Company Name / CRO", "")
 
-    st.markdown("---")
+available_sources = sorted(list(set(
+    df_ct_raw['Source'].dropna().tolist() + df_cro_raw['Source'].dropna().tolist()
+))) if 'Source' in df_ct_raw.columns and 'Source' in df_cro_raw.columns else []
 
-    # Status Distribution & Custom Pie Chart
-    col_chart, col_filter = st.columns([1, 2])
+selected_sources = st.sidebar.multiselect("Filter Lead / Source:", options=available_sources, default=[])
+
+# Apply Sidebar Filters
+df_ct = df_ct_raw.copy()
+df_cro = df_cro_raw.copy()
+
+if search_term:
+    df_ct = df_ct[
+        df_ct['Company Name'].astype(str).str.contains(search_term, case=False, na=False) |
+        df_ct['CRO Num'].astype(str).str.contains(search_term, case=False, na=False)
+    ]
+    df_cro = df_cro[
+        df_cro['Company Name'].astype(str).str.contains(search_term, case=False, na=False) |
+        df_cro['CRO Num'].astype(str).str.contains(search_term, case=False, na=False)
+    ]
+
+if selected_sources:
+    if 'Source' in df_ct.columns:
+        df_ct = df_ct[df_ct['Source'].isin(selected_sources)]
+    if 'Source' in df_cro.columns:
+        df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
+
+# --- HEADER SECTION ---
+st.markdown(f"""
+    <div class="main-header">
+        <h1>🇮🇪 TAX FILING COMPLIANCE PORTAL</h1>
+        <p>Irish Corporate Tax (CT1) & CRO Annual Returns (B1) | Dynamic Compliance Analytics | <b>{datetime.now().strftime('%d/%m/%Y')}</b></p>
+    </div>
+""", unsafe_allow_html=True)
+
+
+def render_compliance_page(title, df, days_col, key_prefix):
+    counts = df['Compliance_Status'].value_counts()
+    total = len(df)
+    filed = counts.get('Filed', 0)
+    late = counts.get('Late', 0)
+    critical = counts.get('Critical (<15 Days)', 0)
+    warning = counts.get('Warning (<30 Days)', 0)
+    safe = counts.get('Safe (>30 Days)', 0)
+    pending = counts.get('Pending / No Data', 0)
+
+    state_key = f"selected_status_{key_prefix}"
+    reset_counter_key = f"chart_reset_counter_{key_prefix}"
+
+    if state_key not in st.session_state:
+        st.session_state[state_key] = "All"
+
+    if reset_counter_key not in st.session_state:
+        st.session_state[reset_counter_key] = 0
+
+    st.markdown("##### 📌 Compliance Metrics:")
     
-    with col_chart:
-        st.subheader("Compliance Breakdown")
-        status_counts = df['Compliance_Status'].value_counts().to_dict()
-        chart_selection = render_custom_pie_chart(status_counts, key=f"pie_{key_prefix}")
+    metrics = [
+        ("ALL CLIENTS", total, "All"),
+        ("FILED", filed, "Filed"),
+        ("LATE", late, "Late"),
+        ("CRITICAL <15D", critical, "Critical (<15 Days)"),
+        ("WARNING <30D", warning, "Warning (<30 Days)"),
+        ("SAFE >30D", safe, "Safe (>30 Days)"),
+        ("PENDING", pending, "Pending / No Data")
+    ]
 
-    with col_filter:
-        st.subheader("Filter Options")
-        status_list = list(df['Compliance_Status'].unique())
-        selected_statuses = st.multiselect("Filter by Compliance Status:", status_list, default=status_list, key=f"filter_{key_prefix}")
+    # Clean CSS Grid to make all 7 KPI buttons exactly equal in width, height, and alignment
+    st.markdown("""
+    <style>
+        div[data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 0px !important;
+            min-width: 0px !important;
+            padding: 0 4px !important;
+        }
         
-        search_query = st.text_input("🔍 Search Company Name:", key=f"search_{key_prefix}")
+        div[data-testid="column"] button {
+            width: 100% !important;
+            height: 80px !important;
+            min-height: 80px !important;
+            max-height: 80px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 8px !important;
+            border-radius: 8px !important;
+            margin: 0 !important;
+        }
 
-    # Filter Application
-    filtered_df = df[df['Compliance_Status'].isin(selected_statuses)]
-    if search_query:
-        filtered_df = filtered_df[filtered_df['Company Name'].str.contains(search_query, case=False, na=False)]
+        div[data-testid="column"] button p {
+            font-size: 0.82rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.5px !important;
+            line-height: 1.2 !important;
+            text-align: center !important;
+            white-space: pre-wrap !important;
+            margin: 0 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-    if chart_selection:
-        filtered_df = filtered_df[filtered_df['Compliance_Status'] == chart_selection]
+    # Render KPI Cards in equal columns
+    cols = st.columns(7)
+    for idx, (col, (label, val, status_val)) in enumerate(zip(cols, metrics)):
+        bg_color = COLOR_MAP.get(status_val, '#64748B')
+        is_active = (st.session_state[state_key] == status_val)
+        border_style = "3px solid #0F172A" if is_active else "1px solid rgba(255,255,255,0.2)"
+        box_shadow = "0 6px 12px rgba(0,0,0,0.2)" if is_active else "0 2px 4px rgba(0,0,0,0.08)"
+        
+        with col:
+            st.markdown(f"""
+            <style>
+                div[data-testid="stColumn"]:nth-of-type({idx+1}) button {{
+                    background-color: {bg_color} !important;
+                    border: {border_style} !important;
+                    box-shadow: {box_shadow} !important;
+                }}
+                div[data-testid="stColumn"]:nth-of-type({idx+1}) button:hover {{
+                    transform: translateY(-2px) !important;
+                    filter: brightness(1.1) !important;
+                }}
+            </style>
+            """, unsafe_allow_html=True)
+            
+            button_text = f"{label}\n{val}"
+            if st.button(button_text, key=f"kpi_btn_{key_prefix}_{idx}"):
+                st.session_state[state_key] = status_val
+                st.session_state[reset_counter_key] += 1
+                st.rerun()
 
     st.markdown("---")
 
-    # Editable Table Section
-    st.subheader("Data Records")
-    enable_editing = st.toggle("Enable Direct Grid Editing", key=f"toggle_{key_prefix}")
+    # --- TWO-WAY INTERACTIVE CHART COMPONENT ---
+    df_counts = pd.DataFrame({'Status': counts.index, 'Count': counts.values})
+    
+    labels_js = list(df_counts['Status'])
+    values_js = [int(v) for v in df_counts['Count']]
+    colors_js = [COLOR_MAP.get(s, '#64748B') for s in labels_js]
+    pull_js = [0.12 if s == st.session_state[state_key] else 0 for s in labels_js]
 
-    grid_display_df = filtered_df.drop(columns=['Compliance_Status'], errors='ignore')
+    chart_key = f"pie_{key_prefix}_{st.session_state[reset_counter_key]}"
 
-    if enable_editing:
-        st.info("💡 Edit cells directly below and click **Save Grid Changes** to persist updates.")
-        edited_df = st.data_editor(
-            grid_display_df,
-            use_container_width=True,
-            num_rows="fixed",
-            key=f"editor_{key_prefix}"
-        )
+    clicked_slice = interactive_pie_chart(
+        labels=labels_js,
+        values=values_js,
+        colors=colors_js,
+        pull=pull_js,
+        title=f"{title} Compliance Status Breakup",
+        selected_status=st.session_state[state_key],
+        key=chart_key
+    )
 
-        if st.button("💾 Save Grid Changes", key=f"save_btn_{key_prefix}", type="primary"):
-            table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
-            updated_count = 0
-            turso_url = st.secrets.get("TURSO_DATABASE_URL", None)
+    if clicked_slice and clicked_slice != st.session_state[state_key]:
+        st.session_state[state_key] = clicked_slice
+        st.rerun()
 
-            if HAS_TURSO and turso_url:
-                for idx in edited_df.index:
-                    orig_row = grid_display_df.loc[idx]
-                    new_row = edited_df.loc[idx]
+    st.markdown("---")
 
-                    if not orig_row.equals(new_row):
-                        company_name = new_row['Company Name']
-                        filed_val = new_row.get(filed_col_name, 'No')
-                        days_val = int(new_row.get(days_col, 0))
-
-                        sql_cmd = f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?'
-                        execute_turso(sql_cmd, (filed_val, days_val, company_name))
-                        updated_count += 1
-            else:
-                import sqlite3
-                conn = sqlite3.connect(DB_FILE)
-                cursor = conn.cursor()
-                for idx in edited_df.index:
-                    orig_row = grid_display_df.loc[idx]
-                    new_row = edited_df.loc[idx]
-
-                    if not orig_row.equals(new_row):
-                        company_name = new_row['Company Name']
-                        filed_val = new_row.get(filed_col_name, 'No')
-                        days_val = int(new_row.get(days_col, 0))
-
-                        cursor.execute(f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?', (filed_val, days_val, company_name))
-                        updated_count += 1
-                conn.commit()
-                conn.close()
-
-            if updated_count > 0:
-                st.cache_data.clear()
-                st.toast(f"🎉 Successfully saved {updated_count} record(s)!", icon="✅")
-                st.rerun()
+    # --- STREAMLIT GRID SECTION ---
+    current_status = st.session_state[state_key]
+    if current_status == "All":
+        filtered_df = df.copy()
+        table_title = f"📋 Full Records ({len(filtered_df)} Companies)"
     else:
-        st.dataframe(grid_display_df, use_container_width=True)
+        filtered_df = df[df['Compliance_Status'] == current_status].copy()
+        table_title = f"📋 Filtered Records: **{current_status}** ({len(filtered_df)} Companies)"
+
+    col_title, col_edit_toggle, col_reset = st.columns([0.55, 0.25, 0.20])
+    
+    with col_title:
+        st.markdown(f"### {table_title}")
+        
+    with col_edit_toggle:
+        edit_mode = st.toggle("✏️ Enable Direct Grid Editing", value=False, key=f"toggle_edit_{key_prefix}")
+
+    with col_reset:
+        if current_status != "All":
+            if st.button("🔄 Clear Filter (Show All)", key=f"reset_btn_{key_prefix}"):
+                st.session_state[state_key] = "All"
+                st.session_state[reset_counter_key] += 1
+                st.rerun()
+
+    if not filtered_df.empty:
+        if days_col in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by=days_col, ascending=True)
+
+        grid_display_df = filtered_df.drop(columns=['Compliance_Status'], errors='ignore')
+        filed_col_name = "CTR Filled" if key_prefix == "ct" else "CORE FILED"
+        
+        column_configs = {
+            "Company Name": st.column_config.TextColumn("Company Name"),
+            "CRO Num": st.column_config.TextColumn("CRO Number"),
+            filed_col_name: st.column_config.SelectboxColumn(
+                "Filed Status",
+                options=["Yes", "No"],
+                required=True
+            ),
+            days_col: st.column_config.NumberColumn(
+                "Days Remaining",
+                step=1,
+                format="%d"
+            )
+        }
+
+        for col in grid_display_df.columns:
+            if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard']):
+                column_configs[col] = st.column_config.DateColumn(
+                    label=col,
+                    format="DD/MM/YYYY"
+                )
+
+        if edit_mode:
+            st.info("💡 **Interactive Grid Active:** Double-click cells to modify values, then click **'Save Grid Changes'** below.")
+            
+            edited_df = st.data_editor(
+                grid_display_df,
+                height=480,
+                hide_index=True,
+                use_container_width=True,
+                column_config=column_configs,
+                key=f"grid_editor_{key_prefix}_{st.session_state[reset_counter_key]}"
+            )
+
+            if st.button("💾 Save Grid Changes", key=f"save_grid_btn_{key_prefix}", type="primary"):
+                table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
+                updated_count = 0
+                turso_url = st.secrets.get("TURSO_DATABASE_URL", None)
+
+                if HAS_TURSO and turso_url:
+                    for idx in edited_df.index:
+                        orig_row = grid_display_df.loc[idx]
+                        new_row = edited_df.loc[idx]
+
+                        if not orig_row.equals(new_row):
+                            company_name = new_row['Company Name']
+                            filed_val = new_row.get(filed_col_name, 'No')
+                            days_val = int(new_row.get(days_col, 0))
+
+                            sql_cmd = f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?'
+                            execute_turso(sql_cmd, (filed_val, days_val, company_name))
+                            updated_count += 1
+                else:
+                    import sqlite3
+                    conn = sqlite3.connect(DB_FILE)
+                    cursor = conn.cursor()
+                    for idx in edited_df.index:
+                        orig_row = grid_display_df.loc[idx]
+                        new_row = edited_df.loc[idx]
+
+                        if not orig_row.equals(new_row):
+                            company_name = new_row['Company Name']
+                            filed_val = new_row.get(filed_col_name, 'No')
+                            days_val = int(new_row.get(days_col, 0))
+
+                            cursor.execute(f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?', (filed_val, days_val, company_name))
+                            updated_count += 1
+                    conn.commit()
+                    conn.close()
+
+                if updated_count > 0:
+                    st.cache_data.clear()
+                    st.toast(f"🎉 Successfully updated {updated_count} record(s) in database!", icon="✅")
+                    st.rerun()
+                else:
+                    st.warning("No changes detected in the grid.")
+
+        else:
+            st.dataframe(
+                grid_display_df,
+                height=480,
+                hide_index=True,
+                use_container_width=True,
+                column_config=column_configs
+            )
+    else:
+        st.info(f"No records found for compliance status '{current_status}'.")
 
 
-# --- MAIN APP ROUTING ---
-def main():
-    try:
-        df_ct, df_cro = load_compliance_data()
-    except Exception as e:
-        st.error(f"Error loading database: {e}")
-        return
+# --- MAIN TABS ---
+tab_ct, tab_cro = st.tabs([
+    "🏛️ CT1 Master Data", 
+    "📜 CRO Master Data"
+])
 
-    tab1, tab2 = st.tabs(["📊 CT1 Corporation Tax", "🏢 CRO Annual Returns"])
+with tab_ct:
+    render_compliance_page("Corporation Tax (CT1)", df_ct, 'DAYS Remaining', 'ct')
 
-    with tab1:
-        render_compliance_page(df_ct, "CT1 Corporation Tax Compliance", "CTR Filled", "DAYS Remaining", "ct")
-
-    with tab2:
-        render_compliance_page(df_cro, "CRO Annual Returns Compliance", "CORE FILED", "Remaining Days", "cro")
-
-if __name__ == "__main__":
-    main()
+with tab_cro:
+    render_compliance_page("CRO Annual Returns (B1)", df_cro, 'Remaining Days', 'cro')
