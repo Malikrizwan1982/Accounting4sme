@@ -13,7 +13,7 @@ except ImportError:
     import sqlite3
     HAS_TURSO = False
 
-# --- PATH RESOLUTION FOR PYINSTALLER, LOCAL DEV & STREAMLIT CLOUD ---
+# --- PATH RESOLUTION ---
 def get_resource_path(relative_path):
     """Get absolute path to resource, works for dev and Streamlit Cloud."""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -63,7 +63,6 @@ st.markdown("""
         margin: 4px 0 0 0;
         font-size: 0.95rem;
     }
-    /* Ensure component containers fit properly */
     iframe[data-testid="stCustomComponentV1"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -72,7 +71,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Declare Custom Two-Way Component with proper path resolution
+# Declare Custom Two-Way Component
 COMPONENT_PATH = get_resource_path("pie_chart_component")
 interactive_pie_chart = components.declare_component("interactive_pie_chart", path=COMPONENT_PATH)
 
@@ -95,7 +94,7 @@ def query_turso(query_str, params=()):
         return pd.DataFrame(rows)
 
 def execute_turso(query_str, params=()):
-    """Executes UPDATE statements on Turso Cloud."""
+    """Executes UPDATE/INSERT/DELETE statements on Turso Cloud."""
     turso_url = st.secrets.get("TURSO_DATABASE_URL")
     turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -105,8 +104,21 @@ def execute_turso(query_str, params=()):
     with libsql_client.create_client_sync(turso_url, auth_token=turso_token) as client:
         client.execute(query_str, params)
 
+def execute_db_command(query_str, params=()):
+    """Unified handler for C/U/D operations across Turso and local SQLite."""
+    turso_url = st.secrets.get("TURSO_DATABASE_URL", None)
+    if HAS_TURSO and turso_url:
+        execute_turso(query_str, params)
+    else:
+        import sqlite3
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute(query_str, params)
+        conn.commit()
+        conn.close()
+
 def format_dataframe_dates(df):
-    """Converts datetime columns into clean DD/MM/YYYY formatted dates with no time component."""
+    """Converts datetime columns into clean DD/MM/YYYY formatted dates."""
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard']):
             try:
@@ -248,7 +260,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
         ("PENDING", pending, "Pending / No Data")
     ]
 
-    # CSS Grid to make all 7 KPI buttons equal in size & force white text on 'ALL CLIENTS'
+    # CSS Grid for KPI buttons
     st.markdown("""
     <style>
         div[data-testid="column"] {
@@ -282,14 +294,13 @@ def render_compliance_page(title, df, days_col, key_prefix):
             margin: 0 !important;
         }
 
-        /* Explicit white text styling for the first KPI Card ('ALL CLIENTS') */
         div[data-testid="stColumn"]:nth-of-type(1) button p {
             color: #FFFFFF !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    # Render KPI Cards in equal columns
+    # Render KPI Cards
     cols = st.columns(7)
     for idx, (col, (label, val, status_val)) in enumerate(zip(cols, metrics)):
         bg_color = COLOR_MAP.get(status_val, '#64748B')
@@ -346,6 +357,39 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("---")
 
+    # --- CRUD FUNCTIONALITY: 1. CREATE (ADD NEW RECORD FORM) ---
+    table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
+    filed_col_name = "CTR Filled" if key_prefix == "ct" else "CORE FILED"
+
+    with st.expander("➕ Add New Company Record (CREATE)", expanded=False):
+        with st.form(key=f"add_record_form_{key_prefix}", clear_on_submit=True):
+            f_col1, f_col2, f_col3 = st.columns(3)
+            with f_col1:
+                new_company = st.text_input("Company Name *")
+                new_cro = st.text_input("CRO Number")
+            with f_col2:
+                new_filed = st.selectbox("Filed Status", options=["No", "Yes"])
+                new_days = st.number_input("Days Remaining", step=1, value=30)
+            with f_col3:
+                new_source = st.text_input("Lead / Source", value="Manual Entry")
+
+            submit_btn = st.form_submit_button("➕ Insert Record into Database", type="primary")
+
+            if submit_btn:
+                if not new_company.strip():
+                    st.error("Company Name is required!")
+                else:
+                    insert_sql = f"""
+                        INSERT INTO {table_db_name} ("Company Name", "CRO Num", "{filed_col_name}", "{days_col}", "Source")
+                        VALUES (?, ?, ?, ?, ?)
+                    """
+                    execute_db_command(insert_sql, (new_company.strip(), new_cro.strip(), new_filed, new_days, new_source.strip()))
+                    st.cache_data.clear()
+                    st.toast(f"🎉 Successfully added '{new_company}' to database!", icon="✅")
+                    st.rerun()
+
+    st.markdown("---")
+
     # --- STREAMLIT GRID SECTION ---
     current_status = st.session_state[state_key]
     if current_status == "All":
@@ -355,13 +399,13 @@ def render_compliance_page(title, df, days_col, key_prefix):
         filtered_df = df[df['Compliance_Status'] == current_status].copy()
         table_title = f"📋 Filtered Records: **{current_status}** ({len(filtered_df)} Companies)"
 
-    col_title, col_edit_toggle, col_reset = st.columns([0.55, 0.25, 0.20])
+    col_title, col_edit_toggle, col_reset = st.columns([0.50, 0.30, 0.20])
     
     with col_title:
         st.markdown(f"### {table_title}")
         
     with col_edit_toggle:
-        edit_mode = st.toggle("✏️ Enable Direct Grid Editing", value=False, key=f"toggle_edit_{key_prefix}")
+        edit_mode = st.toggle("✏️ Enable Direct Grid Editing (UPDATE/DELETE)", value=False, key=f"toggle_edit_{key_prefix}")
 
     with col_reset:
         if current_status != "All":
@@ -375,8 +419,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
             filtered_df = filtered_df.sort_values(by=days_col, ascending=True)
 
         grid_display_df = filtered_df.drop(columns=['Compliance_Status'], errors='ignore')
-        filed_col_name = "CTR Filled" if key_prefix == "ct" else "CORE FILED"
-        
+
         column_configs = {
             "Company Name": st.column_config.TextColumn("Company Name"),
             "CRO Num": st.column_config.TextColumn("CRO Number"),
@@ -400,59 +443,56 @@ def render_compliance_page(title, df, days_col, key_prefix):
                 )
 
         if edit_mode:
-            st.info("💡 **Interactive Grid Active:** Double-click cells to modify values, then click **'Save Grid Changes'** below.")
+            st.info("💡 **Interactive Grid Active:** Modify cells directly to **Update**, or select row checkboxes and use the delete option below to **Delete**.")
             
+            # 2. READ & 3. UPDATE / DELETE via data_editor
             edited_df = st.data_editor(
                 grid_display_df,
                 height=480,
                 hide_index=True,
                 use_container_width=True,
                 column_config=column_configs,
+                num_rows="dynamic",  # Allows row deletion in grid
                 key=f"grid_editor_{key_prefix}_{st.session_state[reset_counter_key]}"
             )
 
-            if st.button("💾 Save Grid Changes", key=f"save_grid_btn_{key_prefix}", type="primary"):
-                table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
-                updated_count = 0
-                turso_url = st.secrets.get("TURSO_DATABASE_URL", None)
+            btn_col1, btn_col2 = st.columns([0.5, 0.5])
 
-                if HAS_TURSO and turso_url:
-                    for idx in edited_df.index:
-                        orig_row = grid_display_df.loc[idx]
-                        new_row = edited_df.loc[idx]
-
-                        if not orig_row.equals(new_row):
-                            company_name = new_row['Company Name']
-                            filed_val = new_row.get(filed_col_name, 'No')
-                            days_val = int(new_row.get(days_col, 0))
-
-                            sql_cmd = f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?'
-                            execute_turso(sql_cmd, (filed_val, days_val, company_name))
+            # SAVE CHANGES (UPDATE & DELETE FROM GRID ACTION)
+            with btn_col1:
+                if st.button("💾 Save Grid Changes (UPDATE)", key=f"save_grid_btn_{key_prefix}", type="primary"):
+                    updated_count = 0
+                    
+                    # Track deleted rows
+                    if len(edited_df) < len(grid_display_df):
+                        remaining_companies = edited_df['Company Name'].tolist()
+                        deleted_rows = grid_display_df[~grid_display_df['Company Name'].isin(remaining_companies)]
+                        for _, d_row in deleted_rows.iterrows():
+                            del_sql = f'DELETE FROM {table_db_name} WHERE "Company Name" = ?'
+                            execute_db_command(del_sql, (d_row['Company Name'],))
                             updated_count += 1
-                else:
-                    import sqlite3
-                    conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.cursor()
+
+                    # Track updated rows
                     for idx in edited_df.index:
-                        orig_row = grid_display_df.loc[idx]
-                        new_row = edited_df.loc[idx]
+                        if idx in grid_display_df.index:
+                            orig_row = grid_display_df.loc[idx]
+                            new_row = edited_df.loc[idx]
 
-                        if not orig_row.equals(new_row):
-                            company_name = new_row['Company Name']
-                            filed_val = new_row.get(filed_col_name, 'No')
-                            days_val = int(new_row.get(days_col, 0))
+                            if not orig_row.equals(new_row):
+                                company_name = new_row['Company Name']
+                                filed_val = new_row.get(filed_col_name, 'No')
+                                days_val = int(new_row.get(days_col, 0))
 
-                            cursor.execute(f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?', (filed_val, days_val, company_name))
-                            updated_count += 1
-                    conn.commit()
-                    conn.close()
+                                sql_cmd = f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?'
+                                execute_db_command(sql_cmd, (filed_val, days_val, company_name))
+                                updated_count += 1
 
-                if updated_count > 0:
-                    st.cache_data.clear()
-                    st.toast(f"🎉 Successfully updated {updated_count} record(s) in database!", icon="✅")
-                    st.rerun()
-                else:
-                    st.warning("No changes detected in the grid.")
+                    if updated_count > 0:
+                        st.cache_data.clear()
+                        st.toast(f"🎉 Successfully saved changes ({updated_count} record/s affected)!", icon="✅")
+                        st.rerun()
+                    else:
+                        st.warning("No changes detected in the grid.")
 
         else:
             st.dataframe(
