@@ -118,9 +118,9 @@ def execute_db_command(query_str, params=()):
         conn.close()
 
 def format_dataframe_dates(df):
-    """Converts datetime columns into clean DD/MM/YYYY formatted dates."""
+    """Converts datetime columns into clean Python date objects for DD/MM/YYYY formatting."""
     for col in df.columns:
-        if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard']):
+        if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']):
             try:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
             except Exception:
@@ -264,7 +264,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
         ("PENDING", pending, "Pending / No Data")
     ]
 
-    # CSS Grid for KPI buttons
+    # CSS Grid for KPI buttons with explicit white text on "ALL CLIENTS"
     st.markdown("""
     <style>
         div[data-testid="column"] {
@@ -361,7 +361,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("---")
 
-    # --- CRUD FUNCTIONALITY: FULL DYNAMIC FORM (CREATE) ---
+    # --- CRUD FUNCTIONALITY: 1. CREATE (ADD NEW RECORD FORM) ---
     table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
     all_table_columns = [col for col in df.columns if col != 'Compliance_Status']
 
@@ -373,11 +373,10 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     # Dynamic Form Container
     if st.session_state[form_show_key]:
-        st.info(f"📋 **Add New Entry:** Fill in all fields for `{table_db_name}` below. Required fields are marked.")
+        st.info(f"📋 **Add New Entry:** Fill in all fields for `{table_db_name}` below. Dates use **DD/MM/YYYY** format.")
         
         with st.container(border=True):
             form_inputs = {}
-            # Layout dynamically into 3 responsive columns
             form_cols = st.columns(3)
             
             for idx, col_name in enumerate(all_table_columns):
@@ -385,22 +384,23 @@ def render_compliance_page(title, df, days_col, key_prefix):
                 col_lower = col_name.lower()
                 
                 with c_target:
-                    # Choice/Selectbox logic for filed status
+                    # Selectbox logic for filing status
                     if any(term in col_lower for term in ['filled', 'filed', 'status']) and 'date' not in col_lower:
                         form_inputs[col_name] = st.selectbox(
                             f"{col_name}", 
                             options=["No", "Yes"], 
                             key=f"field_{key_prefix}_{col_name}"
                         )
-                    # Date pickers for date columns
-                    elif any(keyword in col_lower for keyword in ['date', 'due', 'period', 'ard']):
+                    # Date pickers with DD/MM/YYYY format specification
+                    elif any(keyword in col_lower for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']):
                         form_inputs[col_name] = st.date_input(
                             f"{col_name}", 
                             value=date.today(),
+                            format="DD/MM/YYYY",
                             key=f"field_{key_prefix}_{col_name}"
                         )
                     # Number input for remaining days / numerical fields
-                    elif 'days' in col_lower or 'remaining' in col_lower or 'num' in col_lower and 'cro' not in col_lower:
+                    elif 'days' in col_lower or 'remaining' in col_lower or ('num' in col_lower and 'cro' not in col_lower):
                         form_inputs[col_name] = st.number_input(
                             f"{col_name}", 
                             step=1, 
@@ -416,7 +416,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
                         )
 
             st.markdown("---")
-            # Save and Cancel Action Buttons
+            # Action Buttons: Save & Cancel
             action_col1, action_col2, _ = st.columns([0.2, 0.2, 0.6])
             
             with action_col1:
@@ -425,11 +425,11 @@ def render_compliance_page(title, df, days_col, key_prefix):
                     if "Company Name" in form_inputs and not comp_name_val:
                         st.error("Company Name is required!")
                     else:
-                        # Construct dynamic SQL Insert
+                        # Construct SQL Query
                         columns_str = ", ".join([f'"{c}"' for c in form_inputs.keys()])
                         placeholders = ", ".join(["?" for _ in form_inputs])
                         
-                        # Format values (convert dates to string format)
+                        # Format values (convert dates to ISO format YYYY-MM-DD for SQL storage)
                         formatted_values = []
                         for val in form_inputs.values():
                             if isinstance(val, (date, datetime)):
@@ -498,8 +498,9 @@ def render_compliance_page(title, df, days_col, key_prefix):
             )
         }
 
+        # Apply strict DD/MM/YYYY formatting to all date columns in the data grid
         for col in grid_display_df.columns:
-            if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard']):
+            if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']):
                 column_configs[col] = st.column_config.DateColumn(
                     label=col,
                     format="DD/MM/YYYY"
