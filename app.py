@@ -120,7 +120,7 @@ def execute_db_command(query_str, params=()):
 def format_dataframe_dates(df):
     """Converts datetime columns into clean Python date objects for DD/MM/YYYY formatting."""
     for col in df.columns:
-        if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']):
+        if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']) and 'ct return' not in col.lower():
             try:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
             except Exception:
@@ -377,9 +377,53 @@ def render_compliance_page(title, df, days_col, key_prefix):
         
         with st.container(border=True):
             form_inputs = {}
-            form_cols = st.columns(3)
             
-            for idx, col_name in enumerate(all_table_columns):
+            # --- SPECIAL HANDLING FOR CT RETURN / PERIOD DATES ---
+            if key_prefix == "ct":
+                st.markdown("##### 📅 Accounting Period")
+                p_col1, p_col2 = st.columns(2)
+                
+                with p_col1:
+                    ct_start = st.date_input(
+                        "CT Period Start",
+                        value=date(2025, 6, 22),
+                        format="DD/MM/YYYY",
+                        key=f"start_date_{key_prefix}"
+                    )
+                with p_col2:
+                    ct_end = st.date_input(
+                        "CT Period End",
+                        value=date(2026, 6, 22),
+                        format="DD/MM/YYYY",
+                        key=f"start_end_{key_prefix}"
+                    )
+                
+                # Auto-populate CT Return as Text formatted like "22/06/2025 - 22/06/2026"
+                computed_ct_return = f"{ct_start.strftime('%d/%m/%Y')} - {ct_end.strftime('%d/%m/%Y')}"
+                
+                # Show live generated CT Return field to the user
+                st.text_input(
+                    "CT Return (Auto-generated Period Text)",
+                    value=computed_ct_return,
+                    disabled=True,
+                    help="This field is populated automatically from the start and end dates selected above."
+                )
+                
+                # Save into dictionary for SQL query insertion
+                form_inputs["CT_Period_Start"] = ct_start
+                form_inputs["CT_Period_End"] = ct_end
+                form_inputs["CT Return"] = computed_ct_return
+                
+                st.markdown("---")
+
+            # --- REMAINING FORM FIELDS ---
+            remaining_columns = [
+                c for c in all_table_columns 
+                if c not in ["CT_Period_Start", "CT_Period_End", "CT Return"]
+            ]
+
+            form_cols = st.columns(3)
+            for idx, col_name in enumerate(remaining_columns):
                 c_target = form_cols[idx % 3]
                 col_lower = col_name.lower()
                 
@@ -391,15 +435,15 @@ def render_compliance_page(title, df, days_col, key_prefix):
                             options=["No", "Yes"], 
                             key=f"field_{key_prefix}_{col_name}"
                         )
-                    # Date pickers with DD/MM/YYYY format specification
-                    elif any(keyword in col_lower for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']):
+                    # Single Date pickers for standard date fields
+                    elif any(keyword in col_lower for keyword in ['date', 'due', 'ard']):
                         form_inputs[col_name] = st.date_input(
                             f"{col_name}", 
                             value=date.today(),
                             format="DD/MM/YYYY",
                             key=f"field_{key_prefix}_{col_name}"
                         )
-                    # Number input for remaining days / numerical fields
+                    # Number inputs
                     elif 'days' in col_lower or 'remaining' in col_lower or ('num' in col_lower and 'cro' not in col_lower):
                         form_inputs[col_name] = st.number_input(
                             f"{col_name}", 
@@ -500,7 +544,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
         # Apply strict DD/MM/YYYY formatting to all date columns in the data grid
         for col in grid_display_df.columns:
-            if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']):
+            if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']) and 'ct return' not in col.lower():
                 column_configs[col] = st.column_config.DateColumn(
                     label=col,
                     format="DD/MM/YYYY"
