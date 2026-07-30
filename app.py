@@ -14,12 +14,15 @@ except ImportError:
     import sqlite3
     HAS_TURSO = False
 
-# --- PATH RESOLUTION (FIXED FOR LOCAL & CLOUD) ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+# --- ROBUST PATH RESOLUTION ---
 def get_resource_path(relative_path):
-    """Get absolute path to resource relative to app.py location."""
-    return os.path.join(BASE_DIR, relative_path)
+    """Finds resource file by checking __file__ directory first, then CWD."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, relative_path)
+    if not os.path.exists(path):
+        # Fallback to current working directory
+        path = os.path.join(os.getcwd(), relative_path)
+    return path
 
 def get_base64_image(image_path):
     """Safely converts local image to base64 string for HTML injection."""
@@ -36,6 +39,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# File Paths
+DB_FILE = get_resource_path("irish_tax_compliance.db")
+LOGO1_PATH = get_resource_path("logo1.png")
+LOGO2_PATH = get_resource_path("logo2.png")
 
 # --- COLOR PALETTE DEFINITION ---
 COLOR_MAP = {
@@ -87,12 +95,32 @@ st.markdown("""
         padding: 6px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
+
+    /* --- SIDEBAR FLEXBOX LAYOUT (PIN FOOTER TO BOTTOM) --- */
+    section[data-testid="stSidebar"] > div:first-child {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100vh;
+    }
+    
+    [data-testid="stSidebarUserContent"] {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .sidebar-footer-spacer {
+        flex-grow: 1;
+    }
+
     .sidebar-contact-card {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 8px;
         padding: 12px;
         margin-top: 16px;
+        margin-bottom: 12px;
         font-size: 0.85rem;
         color: #334155;
     }
@@ -101,6 +129,7 @@ st.markdown("""
         text-decoration: none;
         font-weight: 600;
     }
+    
     iframe[data-testid="stCustomComponentV1"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -112,11 +141,6 @@ st.markdown("""
 # Declare Custom Two-Way Component
 COMPONENT_PATH = get_resource_path("pie_chart_component")
 interactive_pie_chart = components.declare_component("interactive_pie_chart", path=COMPONENT_PATH)
-
-# File Paths
-DB_FILE = get_resource_path("irish_tax_compliance.db")
-LOGO1_PATH = get_resource_path("logo1.png")
-LOGO2_PATH = get_resource_path("logo2.png")
 
 # --- TURSO / SQLITE HELPERS ---
 def query_turso(query_str, params=()):
@@ -222,7 +246,7 @@ def load_compliance_data():
 
 df_ct_raw, df_cro_raw = load_compliance_data()
 
-# --- SIDEBAR LOGO (LOGO 1) ---
+# --- SIDEBAR TOP (LOGO 1) ---
 if os.path.exists(LOGO1_PATH):
     st.sidebar.image(LOGO1_PATH, use_container_width=True)
 else:
@@ -259,9 +283,10 @@ if selected_sources:
     if 'Source' in df_cro.columns:
         df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
 
-st.sidebar.markdown("---")
+# --- FLEXBOX SPACER TO PUSH FOOTER DOWN ---
+st.sidebar.markdown('<div class="sidebar-footer-spacer"></div>', unsafe_allow_html=True)
 
-# Official Contact Section in Sidebar
+# Official Contact Section at Sidebar Bottom
 st.sidebar.markdown("""
 <div class="sidebar-contact-card">
     <p style="margin: 0 0 6px 0; font-weight: 700; color: #0F172A;">💼 ACCOUNTANTS 4SME</p>
