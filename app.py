@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+import base64
 from datetime import datetime, date
 import streamlit as st
 import streamlit.components.v1 as components
@@ -18,6 +19,13 @@ def get_resource_path(relative_path):
     """Get absolute path to resource, works for dev and Streamlit Cloud."""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+def get_base64_image(image_path):
+    """Encodes a local image to base64 for embedding in HTML templates."""
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return ""
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -51,6 +59,12 @@ st.markdown("""
         color: white;
         margin-bottom: 24px;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .main-header-content {
+        flex: 1;
     }
     .main-header h1 {
         color: #F8FAFC !important;
@@ -62,6 +76,14 @@ st.markdown("""
         color: #94A3B8;
         margin: 4px 0 0 0;
         font-size: 0.95rem;
+    }
+    .header-logo-right {
+        max-height: 75px;
+        width: auto;
+        border-radius: 8px;
+        background-color: white;
+        padding: 6px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
     .sidebar-contact-card {
         background-color: #FFFFFF;
@@ -89,9 +111,10 @@ st.markdown("""
 COMPONENT_PATH = get_resource_path("pie_chart_component")
 interactive_pie_chart = components.declare_component("interactive_pie_chart", path=COMPONENT_PATH)
 
-# DB File Path for local fallback
+# DB File Path & Image Paths
 DB_FILE = get_resource_path("irish_tax_compliance.db")
-HEADER_IMAGE_PATH = get_resource_path("Header.png")
+LOGO1_PATH = get_resource_path("logo1.png")
+LOGO2_PATH = get_resource_path("logo2.png")
 
 # --- TURSO / SQLITE HELPERS ---
 def query_turso(query_str, params=()):
@@ -203,10 +226,9 @@ def load_compliance_data():
 df_ct_raw, df_cro_raw = load_compliance_data()
 
 # --- SIDEBAR CONTROLS & BRANDING ---
-if os.path.exists(HEADER_IMAGE_PATH):
-    st.sidebar.image(HEADER_IMAGE_PATH, use_container_width=True)
-else:
-    st.sidebar.image("https://img.icons8.com/color/96/ireland.png", width=50)
+# Replaced Ireland flag with logo1.png in the sidebar
+if os.path.exists(LOGO1_PATH):
+    st.sidebar.image(LOGO1_PATH, use_container_width=True)
 
 st.sidebar.title("A4SE WORKPLAN")
 st.sidebar.markdown("---")
@@ -250,11 +272,17 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- HEADER SECTION ---
+# --- HEADER SECTION WITH RIGHT-ALIGNED LOGO2 ---
+logo2_b64 = get_base64_image(LOGO2_PATH)
+logo2_html = f'<img src="data:image/png;base64,{logo2_b64}" class="header-logo-right" alt="A4SE Logo" />' if logo2_b64 else ''
+
 st.markdown(f"""
     <div class="main-header">
-        <h1>🇮🇪 A4SE TAX FILING COMPLIANCE PORTAL</h1>
-        <p>Certified Tax Advisors & Accountants @ <b>Accountants 4SME</b> | Irish CT1 & CRO B1 Compliance | <b>{datetime.now().strftime('%d/%m/%Y')}</b></p>
+        <div class="main-header-content">
+            <h1>🇮🇪 A4SE TAX FILING COMPLIANCE PORTAL</h1>
+            <p>Certified Tax Advisors & Accountants @ <b>Accountants 4SME</b> | Irish CT1 & CRO B1 Compliance | <b>{datetime.now().strftime('%d/%m/%Y')}</b></p>
+        </div>
+        {logo2_html}
     </div>
 """, unsafe_allow_html=True)
 
