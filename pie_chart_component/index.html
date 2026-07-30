@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+        #chart { width: 100%; height: 380px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        var currentSelection = null;
+
+        function sendValueToStreamlit(value) {
+            currentSelection = value;
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setComponentValue",
+                value: value
+            }, "*");
+        }
+
+        function setFrameHeight(height) {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setFrameHeight",
+                height: height
+            }, "*");
+        }
+
+        window.addEventListener("message", function(event) {
+            if (event.data.type === "streamlit:render") {
+                var args = event.data.args;
+                var labels = args.labels;
+                var values = args.values;
+                var colors = args.colors;
+                var pull = args.pull;
+                var title = args.title;
+                var selectedStatus = args.selected_status;
+
+                // Reset selection if state says 'All'
+                if (selectedStatus === "All") {
+                    currentSelection = null;
+                }
+
+                var data = [{
+                    type: 'pie',
+                    labels: labels,
+                    values: values,
+                    hole: 0.45,
+                    textinfo: 'label+percent+value',
+                    textposition: 'inside',
+                    hoverinfo: 'label+value+percent',
+                    marker: {
+                        colors: colors,
+                        line: { color: '#FFFFFF', width: 2 }
+                    },
+                    pull: pull
+                }];
+
+                var layout = {
+                    title: { text: '<b>' + title + '</b> (Click slice to filter)', font: { size: 16, color: '#0F172A' } },
+                    margin: { t: 40, b: 20, l: 20, r: 20 },
+                    showlegend: true,
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)'
+                };
+
+                var config = { responsive: true, displayModeBar: false };
+
+                Plotly.newPlot('chart', data, layout, config);
+
+                var chartDiv = document.getElementById('chart');
+                chartDiv.on('plotly_click', function(data) {
+                    if (data && data.points && data.points.length > 0) {
+                        var clickedLabel = data.points[0].label;
+                        sendValueToStreamlit(clickedLabel);
+                    }
+                });
+
+                setFrameHeight(390);
+            }
+        });
+
+        // Notify Streamlit component is ready
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: "streamlit:componentReady",
+            apiVersion: 1
+        }, "*");
+    </script>
+</body>
+</html>

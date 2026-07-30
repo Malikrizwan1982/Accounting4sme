@@ -1,0 +1,22 @@
+# Ignore all Excel files
+*.xlsx
+*.xls
+*.csv
+
+# Ignore specific files
+your_private_file.xlsx
+
+# Ignore virtual environments
+venv/
+.venv/
+env/
+
+# Ignore Python cache & temporary files
+__pycache__/
+*.pyc
+.DS_Store
+
+# Ignore PyInstaller build output folders (if applicable)
+build/
+dist/
+*.spec
