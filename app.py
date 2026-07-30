@@ -14,17 +14,19 @@ except ImportError:
     import sqlite3
     HAS_TURSO = False
 
-# --- PATH RESOLUTION ---
+# --- PATH RESOLUTION (FIXED FOR LOCAL & CLOUD) ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and Streamlit Cloud."""
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, relative_path)
+    """Get absolute path to resource relative to app.py location."""
+    return os.path.join(BASE_DIR, relative_path)
 
 def get_base64_image(image_path):
-    """Encodes a local image to base64 for embedding in HTML templates."""
-    if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode()
+    """Safely converts local image to base64 string for HTML injection."""
+    full_path = get_resource_path(image_path)
+    if os.path.exists(full_path):
+        with open(full_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode("utf-8")
     return ""
 
 # --- PAGE CONFIGURATION ---
@@ -78,7 +80,7 @@ st.markdown("""
         font-size: 0.95rem;
     }
     .header-logo-right {
-        max-height: 75px;
+        max-height: 80px;
         width: auto;
         border-radius: 8px;
         background-color: white;
@@ -111,14 +113,13 @@ st.markdown("""
 COMPONENT_PATH = get_resource_path("pie_chart_component")
 interactive_pie_chart = components.declare_component("interactive_pie_chart", path=COMPONENT_PATH)
 
-# DB File Path & Image Paths
+# File Paths
 DB_FILE = get_resource_path("irish_tax_compliance.db")
 LOGO1_PATH = get_resource_path("logo1.png")
 LOGO2_PATH = get_resource_path("logo2.png")
 
 # --- TURSO / SQLITE HELPERS ---
 def query_turso(query_str, params=()):
-    """Executes SELECT queries on Turso Cloud using libsql-client."""
     turso_url = st.secrets.get("TURSO_DATABASE_URL")
     turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -132,7 +133,6 @@ def query_turso(query_str, params=()):
         return pd.DataFrame(rows)
 
 def execute_turso(query_str, params=()):
-    """Executes UPDATE/INSERT/DELETE statements on Turso Cloud."""
     turso_url = st.secrets.get("TURSO_DATABASE_URL")
     turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -143,7 +143,6 @@ def execute_turso(query_str, params=()):
         client.execute(query_str, params)
 
 def execute_db_command(query_str, params=()):
-    """Unified handler for C/U/D operations across Turso and local SQLite."""
     turso_url = st.secrets.get("TURSO_DATABASE_URL", None)
     if HAS_TURSO and turso_url:
         execute_turso(query_str, params)
@@ -156,7 +155,6 @@ def execute_db_command(query_str, params=()):
         conn.close()
 
 def format_dataframe_dates(df):
-    """Converts datetime columns into clean Python date objects for DD/MM/YYYY formatting."""
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']) and 'ct return' not in col.lower():
             try:
@@ -182,7 +180,6 @@ def load_compliance_data():
         df_cro = pd.read_sql_query("SELECT * FROM cro_annual_returns", conn)
         conn.close()
 
-    # Format all Date columns upfront
     df_ct = format_dataframe_dates(df_ct)
     df_cro = format_dataframe_dates(df_cro)
 
@@ -225,10 +222,11 @@ def load_compliance_data():
 
 df_ct_raw, df_cro_raw = load_compliance_data()
 
-# --- SIDEBAR CONTROLS & BRANDING ---
-# Replaced Ireland flag with logo1.png in the sidebar
+# --- SIDEBAR LOGO (LOGO 1) ---
 if os.path.exists(LOGO1_PATH):
     st.sidebar.image(LOGO1_PATH, use_container_width=True)
+else:
+    st.sidebar.warning(f"⚠️ `logo1.png` not found at {LOGO1_PATH}")
 
 st.sidebar.title("A4SE WORKPLAN")
 st.sidebar.markdown("---")
@@ -262,6 +260,7 @@ if selected_sources:
         df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
 
 st.sidebar.markdown("---")
+
 # Official Contact Section in Sidebar
 st.sidebar.markdown("""
 <div class="sidebar-contact-card">
@@ -272,9 +271,13 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- HEADER SECTION WITH RIGHT-ALIGNED LOGO2 ---
-logo2_b64 = get_base64_image(LOGO2_PATH)
-logo2_html = f'<img src="data:image/png;base64,{logo2_b64}" class="header-logo-right" alt="A4SE Logo" />' if logo2_b64 else ''
+# --- MAIN HEADER WITH LOGO 2 ---
+logo2_b64 = get_base64_image("logo2.png")
+
+if logo2_b64:
+    logo2_html = f'<img src="data:image/png;base64,{logo2_b64}" class="header-logo-right" alt="Logo 2" />'
+else:
+    logo2_html = '<span style="color:#94A3B8; font-size:0.8rem;">[logo2.png missing]</span>'
 
 st.markdown(f"""
     <div class="main-header">
@@ -322,7 +325,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
         ("PENDING", pending, "Pending / No Data")
     ]
 
-    # CSS Grid for KPI buttons with explicit white text on "ALL CLIENTS"
     st.markdown("""
     <style>
         div[data-testid="column"] {
@@ -362,7 +364,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
     </style>
     """, unsafe_allow_html=True)
 
-    # Render KPI Cards
     cols = st.columns(7)
     for idx, (col, (label, val, status_val)) in enumerate(zip(cols, metrics)):
         bg_color = COLOR_MAP.get(status_val, '#64748B')
@@ -393,7 +394,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("---")
 
-    # --- TWO-WAY INTERACTIVE CHART COMPONENT ---
+    # Interactive Chart
     df_counts = pd.DataFrame({'Status': counts.index, 'Count': counts.values})
     
     labels_js = list(df_counts['Status'])
@@ -419,24 +420,21 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("---")
 
-    # --- CRUD FUNCTIONALITY: 1. CREATE (ADD NEW RECORD FORM) ---
+    # Add Record Form
     table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
     all_table_columns = [col for col in df.columns if col != 'Compliance_Status']
 
-    # Toggle Button for Form
     btn_label = "❌ Close Add Record Form" if st.session_state[form_show_key] else f"➕ Add New {title} Record"
     if st.button(btn_label, key=f"toggle_add_btn_{key_prefix}", type="primary" if not st.session_state[form_show_key] else "secondary"):
         st.session_state[form_show_key] = not st.session_state[form_show_key]
         st.rerun()
 
-    # Dynamic Form Container
     if st.session_state[form_show_key]:
         st.info(f"📋 **Add New Entry:** Fill in all fields for `{table_db_name}` below. Dates use **DD/MM/YYYY** format.")
         
         with st.container(border=True):
             form_inputs = {}
             
-            # --- SPECIAL HANDLING FOR CT RETURN / PERIOD DATES ---
             if key_prefix == "ct":
                 st.markdown("##### 📅 Accounting Period")
                 p_col1, p_col2 = st.columns(2)
@@ -456,10 +454,8 @@ def render_compliance_page(title, df, days_col, key_prefix):
                         key=f"start_end_{key_prefix}"
                     )
                 
-                # Auto-populate CT Return as Text formatted like "22/06/2025 - 22/06/2026"
                 computed_ct_return = f"{ct_start.strftime('%d/%m/%Y')} - {ct_end.strftime('%d/%m/%Y')}"
                 
-                # Show live generated CT Return field to the user
                 st.text_input(
                     "CT Return (Auto-generated Period Text)",
                     value=computed_ct_return,
@@ -467,14 +463,12 @@ def render_compliance_page(title, df, days_col, key_prefix):
                     help="This field is populated automatically from the start and end dates selected above."
                 )
                 
-                # Save into dictionary for SQL query insertion
                 form_inputs["CT_Period_Start"] = ct_start
                 form_inputs["CT_Period_End"] = ct_end
                 form_inputs["CT Return"] = computed_ct_return
                 
                 st.markdown("---")
 
-            # --- REMAINING FORM FIELDS ---
             remaining_columns = [
                 c for c in all_table_columns 
                 if c not in ["CT_Period_Start", "CT_Period_End", "CT Return"]
@@ -486,14 +480,12 @@ def render_compliance_page(title, df, days_col, key_prefix):
                 col_lower = col_name.lower()
                 
                 with c_target:
-                    # Selectbox logic for filing status
                     if any(term in col_lower for term in ['filled', 'filed', 'status']) and 'date' not in col_lower:
                         form_inputs[col_name] = st.selectbox(
                             f"{col_name}", 
                             options=["No", "Yes"], 
                             key=f"field_{key_prefix}_{col_name}"
                         )
-                    # Single Date pickers for standard date fields
                     elif any(keyword in col_lower for keyword in ['date', 'due', 'ard']):
                         form_inputs[col_name] = st.date_input(
                             f"{col_name}", 
@@ -501,7 +493,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
                             format="DD/MM/YYYY",
                             key=f"field_{key_prefix}_{col_name}"
                         )
-                    # Number inputs
                     elif 'days' in col_lower or 'remaining' in col_lower or ('num' in col_lower and 'cro' not in col_lower):
                         form_inputs[col_name] = st.number_input(
                             f"{col_name}", 
@@ -509,7 +500,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
                             value=30,
                             key=f"field_{key_prefix}_{col_name}"
                         )
-                    # Text inputs for everything else
                     else:
                         is_required = "Company Name" in col_name
                         form_inputs[col_name] = st.text_input(
@@ -518,7 +508,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
                         )
 
             st.markdown("---")
-            # Action Buttons: Save & Cancel
             action_col1, action_col2, _ = st.columns([0.2, 0.2, 0.6])
             
             with action_col1:
@@ -527,11 +516,9 @@ def render_compliance_page(title, df, days_col, key_prefix):
                     if "Company Name" in form_inputs and not comp_name_val:
                         st.error("Company Name is required!")
                     else:
-                        # Construct SQL Query
                         columns_str = ", ".join([f'"{c}"' for c in form_inputs.keys()])
                         placeholders = ", ".join(["?" for _ in form_inputs])
                         
-                        # Format values (convert dates to ISO format YYYY-MM-DD for SQL storage)
                         formatted_values = []
                         for val in form_inputs.values():
                             if isinstance(val, (date, datetime)):
@@ -554,7 +541,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("---")
 
-    # --- STREAMLIT GRID SECTION ---
+    # Data Grid
     current_status = st.session_state[state_key]
     if current_status == "All":
         filtered_df = df.copy()
@@ -600,7 +587,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
             )
         }
 
-        # Apply strict DD/MM/YYYY formatting to all date columns in the data grid
         for col in grid_display_df.columns:
             if any(keyword in col.lower() for keyword in ['date', 'due', 'period', 'ard', 'start', 'end']) and 'ct return' not in col.lower():
                 column_configs[col] = st.column_config.DateColumn(
@@ -611,7 +597,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
         if edit_mode:
             st.info("💡 **Interactive Grid Active:** Modify cells directly to **Update**, or select row checkboxes and use the delete option below to **Delete**.")
             
-            # READ & UPDATE / DELETE via data_editor
             edited_df = st.data_editor(
                 grid_display_df,
                 height=480,
@@ -624,12 +609,10 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
             btn_col1, _ = st.columns([0.5, 0.5])
 
-            # SAVE CHANGES (UPDATE & DELETE FROM GRID ACTION)
             with btn_col1:
                 if st.button("💾 Save Grid Changes (UPDATE)", key=f"save_grid_btn_{key_prefix}", type="primary"):
                     updated_count = 0
                     
-                    # Track deleted rows
                     if len(edited_df) < len(grid_display_df):
                         remaining_companies = edited_df['Company Name'].tolist()
                         deleted_rows = grid_display_df[~grid_display_df['Company Name'].isin(remaining_companies)]
@@ -638,7 +621,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
                             execute_db_command(del_sql, (d_row['Company Name'],))
                             updated_count += 1
 
-                    # Track updated rows
                     for idx in edited_df.index:
                         if idx in grid_display_df.index:
                             orig_row = grid_display_df.loc[idx]
