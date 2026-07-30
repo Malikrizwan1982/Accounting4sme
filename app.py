@@ -1,7 +1,7 @@
 import os
 import sys
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -241,12 +241,16 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     state_key = f"selected_status_{key_prefix}"
     reset_counter_key = f"chart_reset_counter_{key_prefix}"
+    form_show_key = f"show_add_form_{key_prefix}"
 
     if state_key not in st.session_state:
         st.session_state[state_key] = "All"
 
     if reset_counter_key not in st.session_state:
         st.session_state[reset_counter_key] = 0
+
+    if form_show_key not in st.session_state:
+        st.session_state[form_show_key] = False
 
     st.markdown("##### 📌 Compliance Metrics:")
     
@@ -357,35 +361,93 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("---")
 
-    # --- CRUD FUNCTIONALITY: 1. CREATE (ADD NEW RECORD FORM) ---
+    # --- CRUD FUNCTIONALITY: FULL DYNAMIC FORM (CREATE) ---
     table_db_name = "corporation_tax" if key_prefix == "ct" else "cro_annual_returns"
-    filed_col_name = "CTR Filled" if key_prefix == "ct" else "CORE FILED"
+    all_table_columns = [col for col in df.columns if col != 'Compliance_Status']
 
-    with st.expander("➕ Add New Company Record (CREATE)", expanded=False):
-        with st.form(key=f"add_record_form_{key_prefix}", clear_on_submit=True):
-            f_col1, f_col2, f_col3 = st.columns(3)
-            with f_col1:
-                new_company = st.text_input("Company Name *")
-                new_cro = st.text_input("CRO Number")
-            with f_col2:
-                new_filed = st.selectbox("Filed Status", options=["No", "Yes"])
-                new_days = st.number_input("Days Remaining", step=1, value=30)
-            with f_col3:
-                new_source = st.text_input("Lead / Source", value="Manual Entry")
+    # Toggle Button for Form
+    btn_label = "❌ Close Add Record Form" if st.session_state[form_show_key] else f"➕ Add New {title} Record"
+    if st.button(btn_label, key=f"toggle_add_btn_{key_prefix}", type="primary" if not st.session_state[form_show_key] else "secondary"):
+        st.session_state[form_show_key] = not st.session_state[form_show_key]
+        st.rerun()
 
-            submit_btn = st.form_submit_button("➕ Insert Record into Database", type="primary")
+    # Dynamic Form Container
+    if st.session_state[form_show_key]:
+        st.info(f"📋 **Add New Entry:** Fill in all fields for `{table_db_name}` below. Required fields are marked.")
+        
+        with st.container(border=True):
+            form_inputs = {}
+            # Layout dynamically into 3 responsive columns
+            form_cols = st.columns(3)
+            
+            for idx, col_name in enumerate(all_table_columns):
+                c_target = form_cols[idx % 3]
+                col_lower = col_name.lower()
+                
+                with c_target:
+                    # Choice/Selectbox logic for filed status
+                    if any(term in col_lower for term in ['filled', 'filed', 'status']) and 'date' not in col_lower:
+                        form_inputs[col_name] = st.selectbox(
+                            f"{col_name}", 
+                            options=["No", "Yes"], 
+                            key=f"field_{key_prefix}_{col_name}"
+                        )
+                    # Date pickers for date columns
+                    elif any(keyword in col_lower for keyword in ['date', 'due', 'period', 'ard']):
+                        form_inputs[col_name] = st.date_input(
+                            f"{col_name}", 
+                            value=date.today(),
+                            key=f"field_{key_prefix}_{col_name}"
+                        )
+                    # Number input for remaining days / numerical fields
+                    elif 'days' in col_lower or 'remaining' in col_lower or 'num' in col_lower and 'cro' not in col_lower:
+                        form_inputs[col_name] = st.number_input(
+                            f"{col_name}", 
+                            step=1, 
+                            value=30,
+                            key=f"field_{key_prefix}_{col_name}"
+                        )
+                    # Text inputs for everything else
+                    else:
+                        is_required = "Company Name" in col_name
+                        form_inputs[col_name] = st.text_input(
+                            f"{col_name}{' *' if is_required else ''}", 
+                            key=f"field_{key_prefix}_{col_name}"
+                        )
 
-            if submit_btn:
-                if not new_company.strip():
-                    st.error("Company Name is required!")
-                else:
-                    insert_sql = f"""
-                        INSERT INTO {table_db_name} ("Company Name", "CRO Num", "{filed_col_name}", "{days_col}", "Source")
-                        VALUES (?, ?, ?, ?, ?)
-                    """
-                    execute_db_command(insert_sql, (new_company.strip(), new_cro.strip(), new_filed, new_days, new_source.strip()))
-                    st.cache_data.clear()
-                    st.toast(f"🎉 Successfully added '{new_company}' to database!", icon="✅")
+            st.markdown("---")
+            # Save and Cancel Action Buttons
+            action_col1, action_col2, _ = st.columns([0.2, 0.2, 0.6])
+            
+            with action_col1:
+                if st.button("💾 Save Record", key=f"submit_form_{key_prefix}", type="primary", use_container_width=True):
+                    comp_name_val = form_inputs.get("Company Name", "").strip() if "Company Name" in form_inputs else ""
+                    if "Company Name" in form_inputs and not comp_name_val:
+                        st.error("Company Name is required!")
+                    else:
+                        # Construct dynamic SQL Insert
+                        columns_str = ", ".join([f'"{c}"' for c in form_inputs.keys()])
+                        placeholders = ", ".join(["?" for _ in form_inputs])
+                        
+                        # Format values (convert dates to string format)
+                        formatted_values = []
+                        for val in form_inputs.values():
+                            if isinstance(val, (date, datetime)):
+                                formatted_values.append(val.strftime('%Y-%m-%d'))
+                            else:
+                                formatted_values.append(val)
+
+                        insert_sql = f'INSERT INTO {table_db_name} ({columns_str}) VALUES ({placeholders})'
+                        
+                        execute_db_command(insert_sql, tuple(formatted_values))
+                        st.cache_data.clear()
+                        st.session_state[form_show_key] = False
+                        st.toast(f"🎉 Successfully inserted record into {table_db_name}!", icon="✅")
+                        st.rerun()
+
+            with action_col2:
+                if st.button("❌ Cancel", key=f"cancel_form_{key_prefix}", type="secondary", use_container_width=True):
+                    st.session_state[form_show_key] = False
                     st.rerun()
 
     st.markdown("---")
@@ -419,6 +481,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
             filtered_df = filtered_df.sort_values(by=days_col, ascending=True)
 
         grid_display_df = filtered_df.drop(columns=['Compliance_Status'], errors='ignore')
+        filed_col_name = "CTR Filled" if key_prefix == "ct" else "CORE FILED"
 
         column_configs = {
             "Company Name": st.column_config.TextColumn("Company Name"),
@@ -445,18 +508,18 @@ def render_compliance_page(title, df, days_col, key_prefix):
         if edit_mode:
             st.info("💡 **Interactive Grid Active:** Modify cells directly to **Update**, or select row checkboxes and use the delete option below to **Delete**.")
             
-            # 2. READ & 3. UPDATE / DELETE via data_editor
+            # READ & UPDATE / DELETE via data_editor
             edited_df = st.data_editor(
                 grid_display_df,
                 height=480,
                 hide_index=True,
                 use_container_width=True,
                 column_config=column_configs,
-                num_rows="dynamic",  # Allows row deletion in grid
+                num_rows="dynamic",
                 key=f"grid_editor_{key_prefix}_{st.session_state[reset_counter_key]}"
             )
 
-            btn_col1, btn_col2 = st.columns([0.5, 0.5])
+            btn_col1, _ = st.columns([0.5, 0.5])
 
             # SAVE CHANGES (UPDATE & DELETE FROM GRID ACTION)
             with btn_col1:
