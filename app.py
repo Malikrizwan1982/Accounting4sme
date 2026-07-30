@@ -21,7 +21,7 @@ def get_resource_path(relative_path):
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Irish Tax Filing Compliance Portal",
+    page_title="A4SE Tax Filing Compliance Portal",
     page_icon="🇮🇪",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -63,6 +63,20 @@ st.markdown("""
         margin: 4px 0 0 0;
         font-size: 0.95rem;
     }
+    .sidebar-contact-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 16px;
+        font-size: 0.85rem;
+        color: #334155;
+    }
+    .sidebar-contact-card a {
+        color: #0284C7;
+        text-decoration: none;
+        font-weight: 600;
+    }
     iframe[data-testid="stCustomComponentV1"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -77,6 +91,7 @@ interactive_pie_chart = components.declare_component("interactive_pie_chart", pa
 
 # DB File Path for local fallback
 DB_FILE = get_resource_path("irish_tax_compliance.db")
+HEADER_IMAGE_PATH = get_resource_path("Header.png")
 
 # --- TURSO / SQLITE HELPERS ---
 def query_turso(query_str, params=()):
@@ -187,9 +202,13 @@ def load_compliance_data():
 
 df_ct_raw, df_cro_raw = load_compliance_data()
 
-# --- SIDEBAR CONTROLS ---
-st.sidebar.image("https://img.icons8.com/color/96/ireland.png", width=50)
-st.sidebar.title("Compliance Portal")
+# --- SIDEBAR CONTROLS & BRANDING ---
+if os.path.exists(HEADER_IMAGE_PATH):
+    st.sidebar.image(HEADER_IMAGE_PATH, use_container_width=True)
+else:
+    st.sidebar.image("https://img.icons8.com/color/96/ireland.png", width=50)
+
+st.sidebar.title("A4SE WORKPLAN")
 st.sidebar.markdown("---")
 
 search_term = st.sidebar.text_input("🔍 Search Company Name / CRO", "")
@@ -220,11 +239,22 @@ if selected_sources:
     if 'Source' in df_cro.columns:
         df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
 
+st.sidebar.markdown("---")
+# Official Contact Section in Sidebar
+st.sidebar.markdown("""
+<div class="sidebar-contact-card">
+    <p style="margin: 0 0 6px 0; font-weight: 700; color: #0F172A;">💼 ACCOUNTANTS 4SME</p>
+    <p style="margin: 0 0 4px 0;">🌐 <a href="https://www.accountant4sme.ie" target="_blank">www.accountant4sme.ie</a></p>
+    <p style="margin: 0 0 4px 0;">✉️ <a href="mailto:info@accountants4sme.ie">info@accountants4sme.ie</a></p>
+    <p style="margin: 0; font-size: 0.78rem; color: #64748B;">Certified Tax Advisors & Accountants (AIA / CPA)</p>
+</div>
+""", unsafe_allow_html=True)
+
 # --- HEADER SECTION ---
 st.markdown(f"""
     <div class="main-header">
-        <h1>🇮🇪 TAX FILING COMPLIANCE PORTAL</h1>
-        <p>Irish Corporate Tax (CT1) & CRO Annual Returns (B1) | Dynamic Compliance Analytics | <b>{datetime.now().strftime('%d/%m/%Y')}</b></p>
+        <h1>🇮🇪 A4SE TAX FILING COMPLIANCE PORTAL</h1>
+        <p>Certified Tax Advisors & Accountants @ <b>Accountants 4SME</b> | Irish CT1 & CRO B1 Compliance | <b>{datetime.now().strftime('%d/%m/%Y')}</b></p>
     </div>
 """, unsafe_allow_html=True)
 
