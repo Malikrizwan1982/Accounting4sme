@@ -63,6 +63,12 @@ st.markdown("""
         margin: 4px 0 0 0;
         font-size: 0.95rem;
     }
+    /* Ensure component containers fit properly */
+    iframe[data-testid="stCustomComponentV1"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: visible !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -242,7 +248,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
         ("PENDING", pending, "Pending / No Data")
     ]
 
-    # Clean CSS Grid to make all 7 KPI buttons exactly equal in width, height, and alignment
+    # CSS Grid to make all 7 KPI buttons equal in size & force white text on 'ALL CLIENTS'
     st.markdown("""
     <style>
         div[data-testid="column"] {
@@ -274,6 +280,11 @@ def render_compliance_page(title, df, days_col, key_prefix):
             text-align: center !important;
             white-space: pre-wrap !important;
             margin: 0 !important;
+        }
+
+        /* Explicit white text styling for the first KPI Card ('ALL CLIENTS') */
+        div[data-testid="stColumn"]:nth-of-type(1) button p {
+            color: #FFFFFF !important;
         }
     </style>
     """, unsafe_allow_html=True)
