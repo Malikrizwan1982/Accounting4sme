@@ -37,7 +37,7 @@ st.set_page_config(
     page_title="Tax Filing Compliance Portal",
     page_icon="🇮🇪",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 # File Paths
@@ -57,7 +57,7 @@ COLOR_MAP = {
     'Pending / No Data': '#64748B'    # Slate Grey
 }
 
-# --- GLOBAL CUSTOM CSS ---
+# --- GLOBAL CUSTOM & MOBILE-RESPONSIVE CSS ---
 st.markdown("""
 <style>
     .stApp {
@@ -75,17 +75,22 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap; /* Allows wrap on smaller screens */
+        gap: 16px;
     }
     .main-header-content {
-        flex: 1;
+        flex: 1 1 300px; /* Min width for header text before wrapping */
+        min-width: 0;
     }
     .main-header-title-container {
         display: flex;
         align-items: center;
         gap: 12px;
+        flex-wrap: wrap;
     }
     .header-inline-logo {
         height: 2.2rem;
+        max-width: 100%;
         width: auto;
         vertical-align: middle;
         object-fit: contain;
@@ -94,17 +99,19 @@ st.markdown("""
         color: #F8FAFC !important;
         margin: 0;
         font-weight: 700;
-        font-size: 2rem;
+        font-size: 1.8rem;
         display: inline-block;
         vertical-align: middle;
+        word-break: break-word; /* Prevents text stacking vertically */
+        white-space: normal !important;
     }
     .main-header p {
         color: #94A3B8;
         margin: 6px 0 0 0;
-        font-size: 0.95rem;
+        font-size: 0.9rem;
     }
     .header-logo-right {
-        max-height: 75px;
+        max-height: 70px;
         width: auto;
         border-radius: 8px;
         background-color: white;
@@ -112,7 +119,7 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
 
-    /* --- STRICT SIDEBAR FLEXBOX LAYOUT TO PIN FOOTER AT THE BOTTOM --- */
+    /* --- SIDEBAR FLEXBOX LAYOUT --- */
     section[data-testid="stSidebar"] {
         height: 100vh !important;
     }
@@ -151,6 +158,46 @@ st.markdown("""
         width: 100% !important;
         max-width: 100% !important;
         overflow: visible !important;
+    }
+
+    /* --- MOBILE RESPONSIVE MEDIA QUERIES (<768px) --- */
+    @media (max-width: 768px) {
+        .main-header {
+            padding: 16px;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .main-header h1 {
+            font-size: 1.3rem !important;
+            line-height: 1.3 !important;
+        }
+        .header-inline-logo {
+            height: 1.8rem;
+        }
+        .header-logo-right {
+            max-height: 50px;
+            align-self: flex-start;
+        }
+        .main-header p {
+            font-size: 0.8rem;
+        }
+        
+        /* Transform 7-column metrics layout to wrap on mobile */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            gap: 8px !important;
+        }
+        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: calc(33.33% - 8px) !important; /* 3 cards per row on mobile */
+            flex: 1 1 calc(33.33% - 8px) !important;
+        }
+    }
+
+    @media (max-width: 480px) {
+        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: calc(50% - 8px) !important; /* 2 cards per row on small phones */
+            flex: 1 1 calc(50% - 8px) !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -300,10 +347,10 @@ if selected_sources:
     if 'Source' in df_cro.columns:
         df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
 
-# --- FLEXBOX SPACER TO PUSH FOOTER DOWN TO VERY BOTTOM ---
+# --- FLEXBOX SPACER TO PUSH FOOTER DOWN TO BOTTOM ---
 st.sidebar.markdown('<div class="sidebar-footer-spacer"></div>', unsafe_allow_html=True)
 
-# Contact Card (Pinned to Sidebar Bottom)
+# Contact Card
 st.sidebar.markdown("""
 <div class="sidebar-contact-card">
     <p style="margin: 0 0 6px 0; font-weight: 700; color: #0F172A;">💼 ACCOUNTANTS 4SME</p>
@@ -376,39 +423,28 @@ def render_compliance_page(title, df, days_col, key_prefix):
 
     st.markdown("""
     <style>
-        div[data-testid="column"] {
-            width: 100% !important;
-            flex: 1 1 0px !important;
-            min-width: 0px !important;
-            padding: 0 4px !important;
-        }
-        
         div[data-testid="column"] button {
             width: 100% !important;
-            height: 80px !important;
-            min-height: 80px !important;
-            max-height: 80px !important;
+            height: 75px !important;
+            min-height: 75px !important;
+            max-height: 75px !important;
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
             justify-content: center !important;
-            padding: 8px !important;
+            padding: 4px !important;
             border-radius: 8px !important;
             margin: 0 !important;
         }
 
         div[data-testid="column"] button p {
-            font-size: 0.82rem !important;
+            font-size: 0.78rem !important;
             font-weight: 700 !important;
-            letter-spacing: 0.5px !important;
+            letter-spacing: 0.3px !important;
             line-height: 1.2 !important;
             text-align: center !important;
             white-space: pre-wrap !important;
             margin: 0 !important;
-        }
-
-        div[data-testid="stColumn"]:nth-of-type(1) button p {
-            color: #FFFFFF !important;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -427,10 +463,6 @@ def render_compliance_page(title, df, days_col, key_prefix):
                     background-color: {bg_color} !important;
                     border: {border_style} !important;
                     box-shadow: {box_shadow} !important;
-                }}
-                div[data-testid="stColumn"]:nth-of-type({idx+1}) button:hover {{
-                    transform: translateY(-2px) !important;
-                    filter: brightness(1.1) !important;
                 }}
             </style>
             """, unsafe_allow_html=True)
@@ -479,7 +511,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
         st.rerun()
 
     if st.session_state[form_show_key]:
-        st.info(f"📋 **Add New Entry:** Fill in all fields for `{table_db_name}` below. Dates use **DD/MM/YYYY** format.")
+        st.info(f"📋 **Add New Entry:** Fill in all fields for `{table_db_name}` below.")
         
         with st.container(border=True):
             form_inputs = {}
@@ -508,8 +540,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
                 st.text_input(
                     "CT Return (Auto-generated Period Text)",
                     value=computed_ct_return,
-                    disabled=True,
-                    help="This field is populated automatically from the start and end dates selected above."
+                    disabled=True
                 )
                 
                 form_inputs["CT_Period_Start"] = ct_start
@@ -557,7 +588,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
                         )
 
             st.markdown("---")
-            action_col1, action_col2, _ = st.columns([0.2, 0.2, 0.6])
+            action_col1, action_col2 = st.columns(2)
             
             with action_col1:
                 if st.button("💾 Save Record", key=f"submit_form_{key_prefix}", type="primary", use_container_width=True):
@@ -599,17 +630,17 @@ def render_compliance_page(title, df, days_col, key_prefix):
         filtered_df = df[df['Compliance_Status'] == current_status].copy()
         table_title = f"📋 Filtered Records: **{current_status}** ({len(filtered_df)} Companies)"
 
-    col_title, col_edit_toggle, col_reset = st.columns([0.50, 0.30, 0.20])
+    col_title, col_edit_toggle, col_reset = st.columns([0.45, 0.35, 0.20])
     
     with col_title:
         st.markdown(f"### {table_title}")
         
     with col_edit_toggle:
-        edit_mode = st.toggle("✏️ Enable Direct Grid Editing (UPDATE/DELETE)", value=False, key=f"toggle_edit_{key_prefix}")
+        edit_mode = st.toggle("✏️ Direct Grid Editing", value=False, key=f"toggle_edit_{key_prefix}")
 
     with col_reset:
         if current_status != "All":
-            if st.button("🔄 Clear Filter (Show All)", key=f"reset_btn_{key_prefix}"):
+            if st.button("🔄 Show All", key=f"reset_btn_{key_prefix}", use_container_width=True):
                 st.session_state[state_key] = "All"
                 st.session_state[reset_counter_key] += 1
                 st.rerun()
@@ -644,7 +675,7 @@ def render_compliance_page(title, df, days_col, key_prefix):
                 )
 
         if edit_mode:
-            st.info("💡 **Interactive Grid Active:** Modify cells directly to **Update**, or select row checkboxes and use the delete option below to **Delete**.")
+            st.info("💡 **Interactive Grid:** Edit cells directly, then click Save below.")
             
             edited_df = st.data_editor(
                 grid_display_df,
@@ -656,40 +687,37 @@ def render_compliance_page(title, df, days_col, key_prefix):
                 key=f"grid_editor_{key_prefix}_{st.session_state[reset_counter_key]}"
             )
 
-            btn_col1, _ = st.columns([0.5, 0.5])
+            if st.button("💾 Save Grid Changes (UPDATE)", key=f"save_grid_btn_{key_prefix}", type="primary"):
+                updated_count = 0
+                
+                if len(edited_df) < len(grid_display_df):
+                    remaining_companies = edited_df['Company Name'].tolist()
+                    deleted_rows = grid_display_df[~grid_display_df['Company Name'].isin(remaining_companies)]
+                    for _, d_row in deleted_rows.iterrows():
+                        del_sql = f'DELETE FROM {table_db_name} WHERE "Company Name" = ?'
+                        execute_db_command(del_sql, (d_row['Company Name'],))
+                        updated_count += 1
 
-            with btn_col1:
-                if st.button("💾 Save Grid Changes (UPDATE)", key=f"save_grid_btn_{key_prefix}", type="primary"):
-                    updated_count = 0
-                    
-                    if len(edited_df) < len(grid_display_df):
-                        remaining_companies = edited_df['Company Name'].tolist()
-                        deleted_rows = grid_display_df[~grid_display_df['Company Name'].isin(remaining_companies)]
-                        for _, d_row in deleted_rows.iterrows():
-                            del_sql = f'DELETE FROM {table_db_name} WHERE "Company Name" = ?'
-                            execute_db_command(del_sql, (d_row['Company Name'],))
+                for idx in edited_df.index:
+                    if idx in grid_display_df.index:
+                        orig_row = grid_display_df.loc[idx]
+                        new_row = edited_df.loc[idx]
+
+                        if not orig_row.equals(new_row):
+                            company_name = new_row['Company Name']
+                            filed_val = new_row.get(filed_col_name, 'No')
+                            days_val = int(new_row.get(days_col, 0))
+
+                            sql_cmd = f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?'
+                            execute_db_command(sql_cmd, (filed_val, days_val, company_name))
                             updated_count += 1
 
-                    for idx in edited_df.index:
-                        if idx in grid_display_df.index:
-                            orig_row = grid_display_df.loc[idx]
-                            new_row = edited_df.loc[idx]
-
-                            if not orig_row.equals(new_row):
-                                company_name = new_row['Company Name']
-                                filed_val = new_row.get(filed_col_name, 'No')
-                                days_val = int(new_row.get(days_col, 0))
-
-                                sql_cmd = f'UPDATE {table_db_name} SET "{filed_col_name}" = ?, "{days_col}" = ? WHERE "Company Name" = ?'
-                                execute_db_command(sql_cmd, (filed_val, days_val, company_name))
-                                updated_count += 1
-
-                    if updated_count > 0:
-                        st.cache_data.clear()
-                        st.toast(f"🎉 Successfully saved changes ({updated_count} record/s affected)!", icon="✅")
-                        st.rerun()
-                    else:
-                        st.warning("No changes detected in the grid.")
+                if updated_count > 0:
+                    st.cache_data.clear()
+                    st.toast(f"🎉 Successfully saved changes ({updated_count} record/s affected)!", icon="✅")
+                    st.rerun()
+                else:
+                    st.warning("No changes detected in the grid.")
 
         else:
             st.dataframe(
