@@ -75,11 +75,11 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         align-items: center;
-        flex-wrap: wrap; /* Allows wrap on smaller screens */
+        flex-wrap: wrap;
         gap: 16px;
     }
     .main-header-content {
-        flex: 1 1 300px; /* Min width for header text before wrapping */
+        flex: 1 1 300px;
         min-width: 0;
     }
     .main-header-title-container {
@@ -102,7 +102,7 @@ st.markdown("""
         font-size: 1.8rem;
         display: inline-block;
         vertical-align: middle;
-        word-break: break-word; /* Prevents text stacking vertically */
+        word-break: break-word;
         white-space: normal !important;
     }
     .main-header p {
@@ -119,7 +119,7 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
 
-    /* --- SIDEBAR FLEXBOX LAYOUT --- */
+    /* SIDEBAR FLEXBOX LAYOUT */
     section[data-testid="stSidebar"] {
         height: 100vh !important;
     }
@@ -160,7 +160,7 @@ st.markdown("""
         overflow: visible !important;
     }
 
-    /* --- MOBILE RESPONSIVE MEDIA QUERIES (<768px) --- */
+    /* HEADER MOBILE RESPONSIVE MEDIA QUERIES (<768px) */
     @media (max-width: 768px) {
         .main-header {
             padding: 16px;
@@ -180,23 +180,6 @@ st.markdown("""
         }
         .main-header p {
             font-size: 0.8rem;
-        }
-        
-        /* Transform 7-column metrics layout to wrap on mobile */
-        [data-testid="stHorizontalBlock"] {
-            flex-wrap: wrap !important;
-            gap: 8px !important;
-        }
-        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: calc(33.33% - 8px) !important; /* 3 cards per row on mobile */
-            flex: 1 1 calc(33.33% - 8px) !important;
-        }
-    }
-
-    @media (max-width: 480px) {
-        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: calc(50% - 8px) !important; /* 2 cards per row on small phones */
-            flex: 1 1 calc(50% - 8px) !important;
         }
     }
 </style>
@@ -347,7 +330,7 @@ if selected_sources:
     if 'Source' in df_cro.columns:
         df_cro = df_cro[df_cro['Source'].isin(selected_sources)]
 
-# --- FLEXBOX SPACER TO PUSH FOOTER DOWN TO BOTTOM ---
+# Flexbox Spacer for Sidebar Footer
 st.sidebar.markdown('<div class="sidebar-footer-spacer"></div>', unsafe_allow_html=True)
 
 # Contact Card
@@ -421,9 +404,28 @@ def render_compliance_page(title, df, days_col, key_prefix):
         ("PENDING", pending, "Pending / No Data")
     ]
 
+    # STRICT UNIFORM KPI CARDS (DESKTOP EQUAL GRID + MOBILE HORIZONTAL SCROLL)
     st.markdown("""
     <style>
-        div[data-testid="column"] button {
+        /* 1. FORCE THE PARENT CONTAINER TO SPREAD EVENLY */
+        [data-testid="stHorizontalBlock"]:has(button[key*="kpi_btn"]) {
+            display: flex !important;
+            flex-direction: row !important;
+            width: 100% !important;
+            gap: 8px !important;
+        }
+
+        /* 2. FORCE EVERY COLUMN TO BE EXACTLY EQUAL IN WIDTH (DESKTOP) */
+        [data-testid="stHorizontalBlock"]:has(button[key*="kpi_btn"]) > div[data-testid="column"] {
+            flex: 1 1 0 !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            width: 100% !important;
+            padding: 0 !important;
+        }
+
+        /* 3. UNIFORM BUTTON SIZING & INTERNAL PADDING */
+        div[data-testid="column"] button[key*="kpi_btn"] {
             width: 100% !important;
             height: 75px !important;
             min-height: 75px !important;
@@ -432,19 +434,38 @@ def render_compliance_page(title, df, days_col, key_prefix):
             flex-direction: column !important;
             align-items: center !important;
             justify-content: center !important;
-            padding: 4px !important;
+            padding: 8px 12px !important;
             border-radius: 8px !important;
             margin: 0 !important;
+            box-sizing: border-box !important;
         }
 
-        div[data-testid="column"] button p {
+        /* 4. TEXT CENTER & WRAPPING INSIDE CARDS */
+        div[data-testid="column"] button[key*="kpi_btn"] p {
             font-size: 0.78rem !important;
             font-weight: 700 !important;
             letter-spacing: 0.3px !important;
-            line-height: 1.2 !important;
+            line-height: 1.25 !important;
             text-align: center !important;
             white-space: pre-wrap !important;
             margin: 0 !important;
+            word-break: break-word !important;
+            width: 100% !important;
+        }
+
+        /* 5. MOBILE OVERRIDE (< 768px): SWIPE STRIP FOR CLEAN MOBILE EXPERIENCE */
+        @media (max-width: 768px) {
+            [data-testid="stHorizontalBlock"]:has(button[key*="kpi_btn"]) {
+                flex-wrap: nowrap !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                padding-bottom: 8px !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(button[key*="kpi_btn"]) > div[data-testid="column"] {
+                flex: 0 0 130px !important;
+                min-width: 130px !important;
+                max-width: 130px !important;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
